@@ -1,107 +1,129 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
+import numpy as np
+import plotly.express as px
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score
+from fpdf import FPDF
 
-st.set_page_config(page_title="🎬 Movie Analyzer", layout="wide")
-sns.set_style("whitegrid")
+# ---------------- UI CONFIG ----------------
+st.set_page_config(page_title="🎬 Movie Analyzer Pro", layout="wide")
 
-st.title("🎬 Movie Analyzer")
-st.write("Upload a movie CSV file and explore visual insights (No API required).")
+st.markdown("""
+<style>
+body { background-color: #0e1117; color: white; }
+.metric { background: #161b22; padding: 10px; border-radius: 10px; }
+</style>
+""", unsafe_allow_html=True)
 
-# Sidebar
-st.sidebar.header("⚙️ Filters")
+st.title("🎬 Movie Analyzer Pro Dashboard")
 
-uploaded_file = st.file_uploader("📂 Upload Movie CSV", type=["csv"])
+# ---------------- UPLOAD ----------------
+file = st.file_uploader("📂 Upload Movie CSV", type="csv")
 
-if uploaded_file:
-    df = pd.read_csv(uploaded_file)
+if file:
+    df = pd.read_csv(file)
 
     st.subheader("📄 Dataset Preview")
     st.dataframe(df.head())
 
-    # Sidebar filters
-    if "genre" in df.columns:
-        genres = st.sidebar.multiselect(
-            "Select Genre",
-            df["genre"].dropna().unique(),
-            default=df["genre"].dropna().unique()
-        )
-        df = df[df["genre"].isin(genres)]
-
-    if "year" in df.columns:
-        year_range = st.sidebar.slider(
-            "Select Year Range",
-            int(df["year"].min()),
-            int(df["year"].max()),
-            (int(df["year"].min()), int(df["year"].max()))
-        )
-        df = df[(df["year"] >= year_range[0]) & (df["year"] <= year_range[1])]
-
-    # Metrics
-    st.subheader("📊 Key Metrics")
+    # ---------------- METRICS ----------------
     col1, col2, col3 = st.columns(3)
 
     col1.metric("Total Movies", len(df))
+
     if "rating" in df.columns:
-        col2.metric("Avg Rating", round(df["rating"].mean(), 2))
+        col2.metric("Average Rating", round(df["rating"].mean(), 2))
+
     if "revenue" in df.columns:
         col3.metric("Total Revenue", round(df["revenue"].sum(), 2))
 
-    # Rating Distribution
+    # ---------------- INTERACTIVE PLOTS ----------------
+    st.subheader("📊 Interactive Visualizations")
+
     if "rating" in df.columns:
-        st.subheader("⭐ Rating Distribution")
-        fig, ax = plt.subplots()
-        sns.histplot(df["rating"], bins=10, kde=True, ax=ax)
-        st.pyplot(fig)
+        fig = px.histogram(df, x="rating", nbins=10, title="Rating Distribution")
+        st.plotly_chart(fig, use_container_width=True)
 
-    # Top Rated Movies
-    if "rating" in df.columns and "title" in df.columns:
-        st.subheader("🏆 Top 10 Rated Movies")
-        top_movies = df.sort_values(by="rating", ascending=False).head(10)
-        st.table(top_movies[["title", "rating"]])
-
-    # Genre-wise Average Rating
-    if "genre" in df.columns and "rating" in df.columns:
-        st.subheader("🎭 Genre-wise Average Rating")
-        genre_avg = df.groupby("genre")["rating"].mean().sort_values(ascending=False)
-        st.bar_chart(genre_avg)
-
-    # Revenue vs Rating
-    if "revenue" in df.columns and "rating" in df.columns:
-        st.subheader("💰 Revenue vs Rating")
-        fig, ax = plt.subplots()
-        sns.scatterplot(data=df, x="rating", y="revenue", ax=ax)
-        st.pyplot(fig)
-
-    # Votes vs Rating (Bubble Chart)
-    if {"votes", "rating"}.issubset(df.columns):
-        st.subheader("🗳 Votes vs Rating")
-        fig, ax = plt.subplots()
-        sns.scatterplot(
-            data=df,
-            x="rating",
-            y="votes",
-            size="votes",
-            sizes=(20, 300),
-            alpha=0.6,
-            ax=ax
+    if {"genre", "rating"}.issubset(df.columns):
+        fig = px.bar(
+            df.groupby("genre")["rating"].mean().reset_index(),
+            x="genre", y="rating",
+            title="Genre vs Average Rating"
         )
-        st.pyplot(fig)
+        st.plotly_chart(fig, use_container_width=True)
 
-    # Movies per Year
+    if {"rating", "revenue"}.issubset(df.columns):
+        fig = px.scatter(
+            df, x="rating", y="revenue",
+            size="revenue", hover_name="title",
+            title="Revenue vs Rating"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    # ---------------- ML PREDICTION ----------------
+    st.subheader("🤖 Movie Success Prediction")
+
+    if {"rating", "votes", "revenue"}.issubset(df.columns):
+        df_ml = df.dropna(subset=["rating", "votes", "revenue"])
+
+        df_ml["success"] = (df_ml["rating"] >= 7).astype(int)
+
+        X = df_ml[["rating", "votes", "revenue"]]
+        y = df_ml["success"]
+
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42
+        )
+
+        model = LogisticRegression(max_iter=1000)
+        model.fit(X_train, y_train)
+
+        acc = accuracy_score(y_test, model.predict(X_test))
+        st.success(f"🎯 Model Accuracy: {round(acc * 100, 2)}%")
+
+    # ---------------- AI-LIKE EDA SUMMARY ----------------
+    st.subheader("🧠 Automated EDA Insights")
+
+    insights = []
+
+    if "rating" in df.columns:
+        insights.append(f"• Average movie rating is {df['rating'].mean():.2f}")
+
+    if "revenue" in df.columns:
+        insights.append(
+            f"• Highest revenue movie earned {df['revenue'].max():.2f}"
+        )
+
     if "year" in df.columns:
-        st.subheader("📅 Movies Released per Year")
-        year_count = df["year"].value_counts().sort_index()
-        st.line_chart(year_count)
+        peak_year = df["year"].value_counts().idxmax()
+        insights.append(f"• Most movies were released in {peak_year}")
 
-    # Correlation Heatmap
-    numeric_cols = df.select_dtypes(include=["int64", "float64"])
-    if len(numeric_cols.columns) > 1:
-        st.subheader("🔗 Correlation Heatmap")
-        fig, ax = plt.subplots()
-        sns.heatmap(numeric_cols.corr(), annot=True, cmap="coolwarm", ax=ax)
-        st.pyplot(fig)
+    for i in insights:
+        st.write(i)
+
+    # ---------------- PDF REPORT ----------------
+    st.subheader("📄 Generate PDF Report")
+
+    if st.button("📥 Generate PDF"):
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Arial", size=12)
+
+        pdf.cell(200, 10, txt="Movie Analyzer Report", ln=True, align="C")
+        pdf.ln(10)
+
+        for line in insights:
+            pdf.multi_cell(0, 8, line)
+
+        pdf.output("movie_report.pdf")
+        st.success("PDF generated successfully!")
+        st.download_button(
+            "⬇️ Download Report",
+            data=open("movie_report.pdf", "rb"),
+            file_name="movie_report.pdf"
+        )
 
 else:
-    st.info("⬆️ Upload a CSV file to start visualization.")
+    st.info("⬆️ Upload a CSV file to unlock the dashboard.")
