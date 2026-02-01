@@ -2,128 +2,147 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score
+from sklearn.ensemble import RandomForestRegressor
 from fpdf import FPDF
 
-# ---------------- UI CONFIG ----------------
-st.set_page_config(page_title="🎬 Movie Analyzer Pro", layout="wide")
+st.set_page_config("🎬 Movie Intelligence Lab", layout="wide")
 
+# ---------------- UI ----------------
 st.markdown("""
 <style>
-body { background-color: #0e1117; color: white; }
-.metric { background: #161b22; padding: 10px; border-radius: 10px; }
+[data-testid="stAppViewContainer"] {
+    background: linear-gradient(120deg, #0f2027, #203a43, #2c5364);
+    color: white;
+}
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🎬 Movie Analyzer Pro Dashboard")
+st.title("🎬 Movie Intelligence Lab")
+st.caption("An end-to-end analytical system for movie performance understanding")
 
-# ---------------- UPLOAD ----------------
-file = st.file_uploader("📂 Upload Movie CSV", type="csv")
+file = st.file_uploader("📂 Upload Movie Dataset (CSV)", type="csv")
 
-if file:
-    df = pd.read_csv(file)
+if not file:
+    st.stop()
 
-    st.subheader("📄 Dataset Preview")
+df = pd.read_csv(file)
+
+# ---------------- TABS ----------------
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "📄 Data",
+    "📊 Exploration",
+    "🎯 Success Scoring",
+    "🤖 Predictive Model",
+    "📄 Report"
+])
+
+# ---------------- TAB 1: DATA ----------------
+with tab1:
+    st.subheader("Dataset Overview")
     st.dataframe(df.head())
 
-    # ---------------- METRICS ----------------
-    col1, col2, col3 = st.columns(3)
+    st.write("**Columns detected:**", list(df.columns))
+    st.write("**Missing values:**")
+    st.write(df.isna().sum())
 
-    col1.metric("Total Movies", len(df))
+# ---------------- TAB 2: EXPLORATION ----------------
+with tab2:
+    st.subheader("Visual Exploration")
 
-    if "rating" in df.columns:
-        col2.metric("Average Rating", round(df["rating"].mean(), 2))
-
-    if "revenue" in df.columns:
-        col3.metric("Total Revenue", round(df["revenue"].sum(), 2))
-
-    # ---------------- INTERACTIVE PLOTS ----------------
-    st.subheader("📊 Interactive Visualizations")
-
-    if "rating" in df.columns:
-        fig = px.histogram(df, x="rating", nbins=10, title="Rating Distribution")
+    if "year" in df.columns:
+        fig = px.line(
+            df.groupby("year").size().reset_index(name="count"),
+            x="year", y="count",
+            title="Movie Production Trend Over Time"
+        )
         st.plotly_chart(fig, use_container_width=True)
 
     if {"genre", "rating"}.issubset(df.columns):
-        fig = px.bar(
-            df.groupby("genre")["rating"].mean().reset_index(),
-            x="genre", y="rating",
-            title="Genre vs Average Rating"
+        fig = px.box(
+            df, x="genre", y="rating",
+            title="Rating Spread by Genre"
         )
         st.plotly_chart(fig, use_container_width=True)
 
-    if {"rating", "revenue"}.issubset(df.columns):
-        fig = px.scatter(
-            df, x="rating", y="revenue",
-            size="revenue", hover_name="title",
-            title="Revenue vs Rating"
-        )
-        st.plotly_chart(fig, use_container_width=True)
+# ---------------- TAB 3: SUCCESS SCORING ----------------
+with tab3:
+    st.subheader("🎯 Movie Success Score")
 
-    # ---------------- ML PREDICTION ----------------
-    st.subheader("🤖 Movie Success Prediction")
+    required = {"rating", "votes", "revenue"}
+    if not required.issubset(df.columns):
+        st.warning("Rating, Votes, and Revenue required.")
+        st.stop()
 
-    if {"rating", "votes", "revenue"}.issubset(df.columns):
-        df_ml = df.dropna(subset=["rating", "votes", "revenue"])
+    df_score = df.copy()
 
-        df_ml["success"] = (df_ml["rating"] >= 7).astype(int)
-
-        X = df_ml[["rating", "votes", "revenue"]]
-        y = df_ml["success"]
-
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42
+    for col in ["rating", "votes", "revenue"]:
+        df_score[col] = (df_score[col] - df_score[col].min()) / (
+            df_score[col].max() - df_score[col].min()
         )
 
-        model = LogisticRegression(max_iter=1000)
-        model.fit(X_train, y_train)
+    df_score["success_score"] = (
+        0.5 * df_score["rating"] +
+        0.3 * df_score["revenue"] +
+        0.2 * df_score["votes"]
+    )
 
-        acc = accuracy_score(y_test, model.predict(X_test))
-        st.success(f"🎯 Model Accuracy: {round(acc * 100, 2)}%")
+    st.metric("Average Success Score", round(df_score["success_score"].mean(), 2))
 
-    # ---------------- AI-LIKE EDA SUMMARY ----------------
-    st.subheader("🧠 Automated EDA Insights")
+    fig = px.histogram(
+        df_score, x="success_score",
+        title="Distribution of Movie Success Scores"
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
-    insights = []
+# ---------------- TAB 4: ML MODEL ----------------
+with tab4:
+    st.subheader("🤖 Predictive Modeling (Explainable)")
 
-    if "rating" in df.columns:
-        insights.append(f"• Average movie rating is {df['rating'].mean():.2f}")
+    features = df_score[["rating", "votes", "revenue"]]
+    target = df_score["success_score"]
 
-    if "revenue" in df.columns:
-        insights.append(
-            f"• Highest revenue movie earned {df['revenue'].max():.2f}"
-        )
+    model = RandomForestRegressor(n_estimators=100, random_state=42)
+    model.fit(features, target)
 
-    if "year" in df.columns:
-        peak_year = df["year"].value_counts().idxmax()
-        insights.append(f"• Most movies were released in {peak_year}")
+    importance = pd.DataFrame({
+        "Feature": features.columns,
+        "Impact": model.feature_importances_
+    }).sort_values("Impact", ascending=False)
+
+    fig = px.bar(
+        importance, x="Feature", y="Impact",
+        title="Feature Impact on Movie Success"
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+# ---------------- TAB 5: REPORT ----------------
+with tab5:
+    st.subheader("📄 Insight Report")
+
+    insights = [
+        f"Average success score across movies is {df_score['success_score'].mean():.2f}",
+        f"Highest scoring movie achieved {df_score['success_score'].max():.2f}",
+        f"Ratings contribute the most to success based on model importance"
+    ]
 
     for i in insights:
-        st.write(i)
+        st.write("•", i)
 
-    # ---------------- PDF REPORT ----------------
-    st.subheader("📄 Generate PDF Report")
-
-    if st.button("📥 Generate PDF"):
+    if st.button("📥 Generate PDF Report"):
         pdf = FPDF()
         pdf.add_page()
         pdf.set_font("Arial", size=12)
 
-        pdf.cell(200, 10, txt="Movie Analyzer Report", ln=True, align="C")
-        pdf.ln(10)
+        pdf.cell(0, 10, "Movie Intelligence Lab Report", ln=True)
+        pdf.ln(5)
 
-        for line in insights:
-            pdf.multi_cell(0, 8, line)
+        for i in insights:
+            pdf.multi_cell(0, 8, i)
 
-        pdf.output("movie_report.pdf")
-        st.success("PDF generated successfully!")
+        pdf.output("movie_intelligence_report.pdf")
+
         st.download_button(
-            "⬇️ Download Report",
-            data=open("movie_report.pdf", "rb"),
-            file_name="movie_report.pdf"
+            "⬇️ Download PDF",
+            data=open("movie_intelligence_report.pdf", "rb"),
+            file_name="movie_intelligence_report.pdf"
         )
-
-else:
-    st.info("⬆️ Upload a CSV file to unlock the dashboard.")
