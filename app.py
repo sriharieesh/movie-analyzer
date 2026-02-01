@@ -4,67 +4,104 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 st.set_page_config(page_title="🎬 Movie Analyzer", layout="wide")
+sns.set_style("whitegrid")
 
-st.title("🎬 Movie Analyzer (CSV Upload)")
-st.write("Upload a movie dataset and explore insights — **no API key required**.")
+st.title("🎬 Movie Analyzer")
+st.write("Upload a movie CSV file and explore visual insights (No API required).")
 
-# Upload CSV
-uploaded_file = st.file_uploader("📂 Upload your movie CSV file", type=["csv"])
+# Sidebar
+st.sidebar.header("⚙️ Filters")
+
+uploaded_file = st.file_uploader("📂 Upload Movie CSV", type=["csv"])
 
 if uploaded_file:
     df = pd.read_csv(uploaded_file)
 
-    st.subheader("📊 Dataset Preview")
+    st.subheader("📄 Dataset Preview")
     st.dataframe(df.head())
 
-    # Basic info
-    st.subheader("ℹ️ Dataset Info")
-    col1, col2 = st.columns(2)
+    # Sidebar filters
+    if "genre" in df.columns:
+        genres = st.sidebar.multiselect(
+            "Select Genre",
+            df["genre"].dropna().unique(),
+            default=df["genre"].dropna().unique()
+        )
+        df = df[df["genre"].isin(genres)]
 
-    with col1:
-        st.metric("Total Movies", len(df))
+    if "year" in df.columns:
+        year_range = st.sidebar.slider(
+            "Select Year Range",
+            int(df["year"].min()),
+            int(df["year"].max()),
+            (int(df["year"].min()), int(df["year"].max()))
+        )
+        df = df[(df["year"] >= year_range[0]) & (df["year"] <= year_range[1])]
 
-    with col2:
-        st.metric("Total Columns", len(df.columns))
+    # Metrics
+    st.subheader("📊 Key Metrics")
+    col1, col2, col3 = st.columns(3)
 
-    # Numeric analysis
-    numeric_cols = df.select_dtypes(include=["int64", "float64"]).columns.tolist()
-
-    if numeric_cols:
-        st.subheader("📈 Statistical Summary")
-        st.dataframe(df[numeric_cols].describe())
-
-    # Rating analysis
+    col1.metric("Total Movies", len(df))
     if "rating" in df.columns:
-        st.subheader("⭐ Ratings Distribution")
+        col2.metric("Avg Rating", round(df["rating"].mean(), 2))
+    if "revenue" in df.columns:
+        col3.metric("Total Revenue", round(df["revenue"].sum(), 2))
+
+    # Rating Distribution
+    if "rating" in df.columns:
+        st.subheader("⭐ Rating Distribution")
         fig, ax = plt.subplots()
         sns.histplot(df["rating"], bins=10, kde=True, ax=ax)
         st.pyplot(fig)
 
-    # Genre analysis
-    if "genre" in df.columns:
-        st.subheader("🎭 Movies by Genre")
-        genre_count = df["genre"].value_counts().head(10)
-        st.bar_chart(genre_count)
+    # Top Rated Movies
+    if "rating" in df.columns and "title" in df.columns:
+        st.subheader("🏆 Top 10 Rated Movies")
+        top_movies = df.sort_values(by="rating", ascending=False).head(10)
+        st.table(top_movies[["title", "rating"]])
+
+    # Genre-wise Average Rating
+    if "genre" in df.columns and "rating" in df.columns:
+        st.subheader("🎭 Genre-wise Average Rating")
+        genre_avg = df.groupby("genre")["rating"].mean().sort_values(ascending=False)
+        st.bar_chart(genre_avg)
 
     # Revenue vs Rating
     if "revenue" in df.columns and "rating" in df.columns:
         st.subheader("💰 Revenue vs Rating")
         fig, ax = plt.subplots()
-        sns.scatterplot(
-            x=df["rating"],
-            y=df["revenue"],
-            ax=ax
-        )
-        ax.set_xlabel("Rating")
-        ax.set_ylabel("Revenue")
+        sns.scatterplot(data=df, x="rating", y="revenue", ax=ax)
         st.pyplot(fig)
 
-    # Year-wise analysis
+    # Votes vs Rating (Bubble Chart)
+    if {"votes", "rating"}.issubset(df.columns):
+        st.subheader("🗳 Votes vs Rating")
+        fig, ax = plt.subplots()
+        sns.scatterplot(
+            data=df,
+            x="rating",
+            y="votes",
+            size="votes",
+            sizes=(20, 300),
+            alpha=0.6,
+            ax=ax
+        )
+        st.pyplot(fig)
+
+    # Movies per Year
     if "year" in df.columns:
-        st.subheader("📅 Movies by Year")
+        st.subheader("📅 Movies Released per Year")
         year_count = df["year"].value_counts().sort_index()
         st.line_chart(year_count)
 
+    # Correlation Heatmap
+    numeric_cols = df.select_dtypes(include=["int64", "float64"])
+    if len(numeric_cols.columns) > 1:
+        st.subheader("🔗 Correlation Heatmap")
+        fig, ax = plt.subplots()
+        sns.heatmap(numeric_cols.corr(), annot=True, cmap="coolwarm", ax=ax)
+        st.pyplot(fig)
+
 else:
-    st.info("👆 Upload a CSV file to start analyzing movies.")
+    st.info("⬆️ Upload a CSV file to start visualization.")
