@@ -2,6 +2,10 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
+import os
+
+def save_plot(fig, filename):
+    fig.write_image(filename, engine="kaleido")
 
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
@@ -182,23 +186,59 @@ with tab4:
     if df_score is None:
         st.warning("Report unavailable.")
     else:
+        # -------- Recreate plots safely --------
+        fig_success = px.histogram(
+            df_score,
+            x="success_score",
+            title="Success Score Distribution"
+        )
+
+        model_df = df_score[
+            ["rating", "votes", "revenue", "success_score"]
+        ].dropna()
+
+        fig_importance = None
+        r2_val, rmse_val = None, None
+
+        if len(model_df) >= 10:
+            X = model_df[["rating", "votes", "revenue"]]
+            y = model_df["success_score"]
+
+            model = RandomForestRegressor(
+                n_estimators=100,
+                random_state=42
+            )
+            model.fit(X, y)
+
+            importance = pd.DataFrame({
+                "Feature": X.columns,
+                "Importance": model.feature_importances_
+            }).sort_values("Importance", ascending=False)
+
+            fig_importance = px.bar(
+                importance,
+                x="Feature",
+                y="Importance",
+                title="Feature Importance"
+            )
+
         insights = [
             f"Average success score: {df_score['success_score'].mean():.3f}",
             f"Maximum success score: {df_score['success_score'].max():.3f}",
-            f"Model R² score: {r2:.3f}",
-            f"Model RMSE: {rmse:.3f}",
-            "Ratings have the strongest influence on movie success."
+            "Ratings contribute most strongly to movie success."
         ]
 
         for i in insights:
             st.write("•", i)
 
         if st.button("📥 Generate PDF Report"):
-            # ---- Save charts ----
+            # ---- Save images ----
             save_plot(fig_success, "success_dist.png")
-            save_plot(fig_importance, "feature_importance.png")
 
-            # ---- Create PDF ----
+            if fig_importance:
+                save_plot(fig_importance, "feature_importance.png")
+
+            # ---- Build PDF ----
             pdf = FPDF()
             pdf.add_page()
             pdf.set_font("Arial", "B", 14)
@@ -215,8 +255,9 @@ with tab4:
             pdf.image("success_dist.png", w=170)
             pdf.ln(5)
 
-            pdf.cell(0, 10, "Feature Importance", ln=True)
-            pdf.image("feature_importance.png", w=170)
+            if fig_importance:
+                pdf.cell(0, 10, "Feature Importance", ln=True)
+                pdf.image("feature_importance.png", w=170)
 
             pdf.output("movie_analysis_report.pdf")
 
@@ -225,6 +266,12 @@ with tab4:
                 data=open("movie_analysis_report.pdf", "rb"),
                 file_name="movie_analysis_report.pdf"
             )
+
+            # ---- Cleanup ----
+            os.remove("success_dist.png")
+            if fig_importance:
+                os.remove("feature_importance.png")
+)
 
             # cleanup
             os.remove("success_dist.png")
