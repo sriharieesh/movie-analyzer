@@ -4,11 +4,18 @@ import numpy as np
 import plotly.express as px
 import matplotlib.pyplot as plt
 
-
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score, mean_squared_error
 from fpdf import FPDF
+
+# -------------------------------------------------
+# HELPER FUNCTION (UNICODE SAFE FOR PDF)
+# -------------------------------------------------
+def safe_text(text):
+    if isinstance(text, str):
+        return text.encode("latin-1", "replace").decode("latin-1")
+    return str(text)
 
 # -------------------------------------------------
 # CONFIG
@@ -47,7 +54,6 @@ if required_cols.issubset(df.columns):
         else:
             df_score[col] = (df_score[col] - min_val) / (max_val - min_val)
 
-    # default weights
     df_score["success_score"] = (
         0.5 * df_score["rating"]
         + 0.3 * df_score["revenue"]
@@ -85,35 +91,14 @@ with tab1:
         st.plotly_chart(fig, use_container_width=True)
 
 # -------------------------------------------------
-# TAB 2 — USER-CONTROLLED SUCCESS SCORING
+# TAB 2 — SUCCESS SCORING
 # -------------------------------------------------
 with tab2:
-    st.subheader("🎯 Movie Success Scoring (User Controlled)")
+    st.subheader("🎯 Movie Success Scoring")
 
     if df_score is None:
         st.warning("CSV must contain rating, votes, and revenue columns.")
     else:
-        st.markdown("### Adjust Feature Weights")
-
-        w_rating = st.slider("Rating Weight", 0.0, 1.0, 0.5, 0.05)
-        w_revenue = st.slider(
-            "Revenue Weight", 0.0, round(1.0 - w_rating, 2), 0.3, 0.05
-        )
-        w_votes = round(1.0 - (w_rating + w_revenue), 2)
-
-        st.info(f"Votes Weight auto-set to **{w_votes}**")
-
-        df_score["success_score"] = (
-            w_rating * df_score["rating"]
-            + w_revenue * df_score["revenue"]
-            + w_votes * df_score["votes"]
-        )
-
-        st.metric(
-            "Average Success Score",
-            round(df_score["success_score"].mean(), 3)
-        )
-
         fig = px.histogram(
             df_score,
             x="success_score",
@@ -121,8 +106,13 @@ with tab2:
         )
         st.plotly_chart(fig, use_container_width=True)
 
+        st.metric(
+            "Average Success Score",
+            round(df_score["success_score"].mean(), 3)
+        )
+
 # -------------------------------------------------
-# TAB 3 — ML MODEL + METRICS
+# TAB 3 — PREDICTIVE MODEL
 # -------------------------------------------------
 with tab3:
     st.subheader("🤖 Predictive Model (With Metrics)")
@@ -152,10 +142,8 @@ with tab3:
 
             y_pred = model.predict(X_test)
 
-            # ✅ VERSION-SAFE METRICS (NO squared=FALSE)
             r2 = r2_score(y_test, y_pred)
-            mse = mean_squared_error(y_test, y_pred)
-            rmse = float(np.sqrt(mse))
+            rmse = np.sqrt(mean_squared_error(y_test, y_pred))
 
             col1, col2 = st.columns(2)
             col1.metric("R² Score", f"{r2:.3f}")
@@ -164,19 +152,17 @@ with tab3:
             importance = pd.DataFrame({
                 "Feature": X.columns,
                 "Importance": model.feature_importances_
-            }).sort_values("Importance", ascending=False)
+            })
 
             fig = px.bar(
                 importance,
-                x="Feature",
-                y="Importance",
-                title="Feature Importance on Success Prediction"
+                x="Feature", y="Importance",
+                title="Feature Importance"
             )
             st.plotly_chart(fig, use_container_width=True)
 
-
 # -------------------------------------------------
-# TAB 4 — REPORT
+# TAB 4 — REPORT (WITH VISUALS)
 # -------------------------------------------------
 with tab4:
     st.subheader("📄 Auto-Generated Report with Visualizations")
@@ -184,7 +170,6 @@ with tab4:
     if df_score is None:
         st.warning("Report unavailable.")
     else:
-        # ---------- INSIGHTS ----------
         insights = [
             f"Average success score: {df_score['success_score'].mean():.3f}",
             f"Maximum success score: {df_score['success_score'].max():.3f}",
@@ -192,10 +177,10 @@ with tab4:
         ]
 
         for i in insights:
-            st.write("•", i)
+            st.write("-", i)
 
         if st.button("📥 Generate PDF Report"):
-            # ---------- MATPLOTLIB FIG 1 ----------
+            # --- Chart 1 ---
             plt.figure()
             plt.hist(df_score["success_score"], bins=10)
             plt.title("Success Score Distribution")
@@ -205,7 +190,7 @@ with tab4:
             plt.savefig("success_dist.png")
             plt.close()
 
-            # ---------- MATPLOTLIB FIG 2 ----------
+            # --- Chart 2 ---
             model_df = df_score[
                 ["rating", "votes", "revenue", "success_score"]
             ].dropna()
@@ -214,42 +199,41 @@ with tab4:
                 X = model_df[["rating", "votes", "revenue"]]
                 y = model_df["success_score"]
 
-                model = RandomForestRegressor(
-                    n_estimators=100,
-                    random_state=42
-                )
+                model = RandomForestRegressor(n_estimators=100, random_state=42)
                 model.fit(X, y)
 
-                importances = model.feature_importances_
-
                 plt.figure()
-                plt.bar(X.columns, importances)
+                plt.bar(X.columns, model.feature_importances_)
                 plt.title("Feature Importance")
-                plt.xlabel("Feature")
-                plt.ylabel("Importance")
                 plt.tight_layout()
                 plt.savefig("feature_importance.png")
                 plt.close()
 
-# ---------- BUILD PDF ----------
-pdf = FPDF()
-pdf.add_page()
-pdf.set_font("Arial", "B", 14)
-pdf.cell(0, 10, safe_text("Movie Intelligence Lab - Analysis Report"), ln=True)
-pdf.ln(5)
+            # --- Build PDF ---
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.set_font("Arial", "B", 14)
+            pdf.cell(0, 10, safe_text("Movie Intelligence Lab - Analysis Report"), ln=True)
+            pdf.ln(5)
 
-pdf.set_font("Arial", size=11)
-for i in insights:
-    pdf.multi_cell(0, 8, safe_text(f"- {i}"))
-pdf.ln(5)
+            pdf.set_font("Arial", size=11)
+            for i in insights:
+                pdf.multi_cell(0, 8, safe_text(f"- {i}"))
+            pdf.ln(5)
 
-pdf.set_font("Arial", "B", 12)
-pdf.cell(0, 10, safe_text("Success Score Distribution"), ln=True)
-pdf.image("success_dist.png", w=170)
-pdf.ln(5)
+            pdf.set_font("Arial", "B", 12)
+            pdf.cell(0, 10, safe_text("Success Score Distribution"), ln=True)
+            pdf.image("success_dist.png", w=170)
+            pdf.ln(5)
 
-if len(model_df) >= 10:
-    pdf.cell(0, 10, safe_text("Feature Importance"), ln=True)
-    pdf.image("feature_importance.png", w=170)
+            if len(model_df) >= 10:
+                pdf.cell(0, 10, safe_text("Feature Importance"), ln=True)
+                pdf.image("feature_importance.png", w=170)
 
-pdf.output("movie_analysis_report.pdf")
+            pdf.output("movie_analysis_report.pdf")
+
+            st.download_button(
+                "⬇️ Download PDF Report",
+                data=open("movie_analysis_report.pdf", "rb"),
+                file_name="movie_analysis_report.pdf"
+            )
