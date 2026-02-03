@@ -139,14 +139,7 @@ with tab2:
 # -------------------------------------------------
 st.subheader("🔍 Explainable AI")
 
-if not SHAP_AVAILABLE:
-    st.warning(
-        "SHAP is not installed in this environment. "
-        "Explainable AI is disabled.\n\n"
-        "To enable it locally, run:\n"
-        "`pip install shap`"
-    )
-else:
+if SHAP_AVAILABLE:
     explainer = shap.TreeExplainer(model)
     shap_values = explainer.shap_values(X_test)
 
@@ -159,6 +152,14 @@ else:
     )
     st.pyplot(fig)
     plt.close()
+else:
+    st.info(
+        "Explainable AI (SHAP) is disabled because the SHAP library "
+        "is not installed in this environment.\n\n"
+        "To enable it locally, run:\n"
+        "`pip install shap`"
+    )
+
 
 
 # -------------------------------------------------
