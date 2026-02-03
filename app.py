@@ -3,7 +3,11 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import matplotlib.pyplot as plt
-import shap
+try:
+    import shap
+    SHAP_AVAILABLE = True
+except ModuleNotFoundError:
+    SHAP_AVAILABLE = False
 
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.model_selection import train_test_split
@@ -133,36 +137,16 @@ with tab2:
 # -------------------------------------------------
 # TAB 3 — PREDICTIVE MODEL + SHAP
 # -------------------------------------------------
-with tab3:
-    st.subheader("🤖 Success Score Prediction")
+st.subheader("🔍 Explainable AI")
 
-    model_df = df[["rating_n", "votes_n", "revenue_n", "success_score"]]
-
-    X = model_df[["rating_n", "votes_n", "revenue_n"]]
-    y = model_df["success_score"]
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.25, random_state=42
+if not SHAP_AVAILABLE:
+    st.warning(
+        "SHAP is not installed in this environment. "
+        "Explainable AI is disabled.\n\n"
+        "To enable it locally, run:\n"
+        "`pip install shap`"
     )
-
-    model = RandomForestRegressor(
-        n_estimators=200,
-        max_depth=6,
-        random_state=42
-    )
-    model.fit(X_train, y_train)
-
-    y_pred = model.predict(X_test)
-
-    r2 = r2_score(y_test, y_pred)
-    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-
-    c1, c2 = st.columns(2)
-    c1.metric("R² Score", f"{r2:.3f}")
-    c2.metric("RMSE", f"{rmse:.3f}")
-
-    st.subheader("🔍 Explainable AI (SHAP)")
-
+else:
     explainer = shap.TreeExplainer(model)
     shap_values = explainer.shap_values(X_test)
 
@@ -175,6 +159,7 @@ with tab3:
     )
     st.pyplot(fig)
     plt.close()
+
 
 # -------------------------------------------------
 # TAB 4 — REVENUE CLASSIFICATION
