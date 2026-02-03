@@ -2,10 +2,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import os
+import matplotlib.pyplot as plt
 
-def save_plot(fig, filename):
-    fig.write_image(filename, engine="kaleido")
 
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
@@ -186,42 +184,7 @@ with tab4:
     if df_score is None:
         st.warning("Report unavailable.")
     else:
-        # -------- Recreate plots safely --------
-        fig_success = px.histogram(
-            df_score,
-            x="success_score",
-            title="Success Score Distribution"
-        )
-
-        model_df = df_score[
-            ["rating", "votes", "revenue", "success_score"]
-        ].dropna()
-
-        fig_importance = None
-        r2_val, rmse_val = None, None
-
-        if len(model_df) >= 10:
-            X = model_df[["rating", "votes", "revenue"]]
-            y = model_df["success_score"]
-
-            model = RandomForestRegressor(
-                n_estimators=100,
-                random_state=42
-            )
-            model.fit(X, y)
-
-            importance = pd.DataFrame({
-                "Feature": X.columns,
-                "Importance": model.feature_importances_
-            }).sort_values("Importance", ascending=False)
-
-            fig_importance = px.bar(
-                importance,
-                x="Feature",
-                y="Importance",
-                title="Feature Importance"
-            )
-
+        # ---------- INSIGHTS ----------
         insights = [
             f"Average success score: {df_score['success_score'].mean():.3f}",
             f"Maximum success score: {df_score['success_score'].max():.3f}",
@@ -232,13 +195,43 @@ with tab4:
             st.write("•", i)
 
         if st.button("📥 Generate PDF Report"):
-            # ---- Save images ----
-            save_plot(fig_success, "success_dist.png")
+            # ---------- MATPLOTLIB FIG 1 ----------
+            plt.figure()
+            plt.hist(df_score["success_score"], bins=10)
+            plt.title("Success Score Distribution")
+            plt.xlabel("Success Score")
+            plt.ylabel("Frequency")
+            plt.tight_layout()
+            plt.savefig("success_dist.png")
+            plt.close()
 
-            if fig_importance:
-                save_plot(fig_importance, "feature_importance.png")
+            # ---------- MATPLOTLIB FIG 2 ----------
+            model_df = df_score[
+                ["rating", "votes", "revenue", "success_score"]
+            ].dropna()
 
-            # ---- Build PDF ----
+            if len(model_df) >= 10:
+                X = model_df[["rating", "votes", "revenue"]]
+                y = model_df["success_score"]
+
+                model = RandomForestRegressor(
+                    n_estimators=100,
+                    random_state=42
+                )
+                model.fit(X, y)
+
+                importances = model.feature_importances_
+
+                plt.figure()
+                plt.bar(X.columns, importances)
+                plt.title("Feature Importance")
+                plt.xlabel("Feature")
+                plt.ylabel("Importance")
+                plt.tight_layout()
+                plt.savefig("feature_importance.png")
+                plt.close()
+
+            # ---------- BUILD PDF ----------
             pdf = FPDF()
             pdf.add_page()
             pdf.set_font("Arial", "B", 14)
@@ -255,7 +248,7 @@ with tab4:
             pdf.image("success_dist.png", w=170)
             pdf.ln(5)
 
-            if fig_importance:
+            if len(model_df) >= 10:
                 pdf.cell(0, 10, "Feature Importance", ln=True)
                 pdf.image("feature_importance.png", w=170)
 
@@ -266,14 +259,3 @@ with tab4:
                 data=open("movie_analysis_report.pdf", "rb"),
                 file_name="movie_analysis_report.pdf"
             )
-
-            # ---- Cleanup ----
-            os.remove("success_dist.png")
-            if fig_importance:
-                os.remove("feature_importance.png")
-
-
-            # cleanup
-            os.remove("success_dist.png")
-            os.remove("feature_importance.png")
-
