@@ -137,28 +137,20 @@ with tab2:
 # -------------------------------------------------
 # TAB 3 — PREDICTIVE MODEL + SHAP
 # -------------------------------------------------
-st.subheader("🔍 Explainable AI")
+st.subheader("🔍 Model Explainability")
 
-if SHAP_AVAILABLE:
-    explainer = shap.TreeExplainer(model)
-    shap_values = explainer.shap_values(X_test)
+importance = pd.DataFrame({
+    "Feature": X.columns,
+    "Importance": model.feature_importances_
+}).sort_values(by="Importance", ascending=False)
 
-    fig, ax = plt.subplots()
-    shap.summary_plot(
-        shap_values,
-        X_test,
-        plot_type="bar",
-        show=False
-    )
-    st.pyplot(fig)
-    plt.close()
-else:
-    st.info(
-        "Explainable AI (SHAP) is disabled because the SHAP library "
-        "is not installed in this environment.\n\n"
-        "To enable it locally, run:\n"
-        "`pip install shap`"
-    )
+fig = px.bar(
+    importance,
+    x="Feature",
+    y="Importance",
+    title="Feature Importance (Random Forest)"
+)
+st.plotly_chart(fig, use_container_width=True)
 
 
 
