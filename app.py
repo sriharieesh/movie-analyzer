@@ -150,12 +150,14 @@ with tab3:
 
             y_pred = model.predict(X_test)
 
+            # ✅ VERSION-SAFE METRICS (NO squared=FALSE)
             r2 = r2_score(y_test, y_pred)
-            rmse = mean_squared_error(y_test, y_pred, squared=False)
+            mse = mean_squared_error(y_test, y_pred)
+            rmse = float(np.sqrt(mse))
 
             col1, col2 = st.columns(2)
-            col1.metric("R² Score", round(r2, 3))
-            col2.metric("RMSE", round(rmse, 3))
+            col1.metric("R² Score", f"{r2:.3f}")
+            col2.metric("RMSE", f"{rmse:.3f}")
 
             importance = pd.DataFrame({
                 "Feature": X.columns,
@@ -164,10 +166,12 @@ with tab3:
 
             fig = px.bar(
                 importance,
-                x="Feature", y="Importance",
+                x="Feature",
+                y="Importance",
                 title="Feature Importance on Success Prediction"
             )
             st.plotly_chart(fig, use_container_width=True)
+
 
 # -------------------------------------------------
 # TAB 4 — REPORT
