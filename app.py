@@ -11,6 +11,10 @@ from sklearn.preprocessing import LabelEncoder
 # -------------------------------------------------
 # CONFIG
 # -------------------------------------------------
+def safe_text(text):
+    if isinstance(text, str):
+        return text.encode("latin-1", "replace").decode("latin-1")
+    return str(text)
 st.set_page_config(page_title="🎬 Movie Intelligence Lab", layout="wide")
 st.title("🎬 Movie Intelligence Lab")
 
@@ -231,6 +235,34 @@ with tab5:
         "votes_n": (v - data["votes"].min()) / (data["votes"].max() - data["votes"].min()),
         "revenue_n": (rev - data["revenue"].min()) / (data["revenue"].max() - data["revenue"].min())
     }])
+    # ---------- BUILD PDF ----------
+pdf = FPDF()
+pdf.add_page()
+
+pdf.set_font("Arial", "B", 14)
+pdf.cell(
+    0, 10,
+    safe_text("Movie Intelligence Lab - Analysis Report"),
+    ln=True
+)
+pdf.ln(5)
+
+pdf.set_font("Arial", size=11)
+for i in insights:
+    pdf.multi_cell(0, 8, safe_text(f"- {i}"))
+pdf.ln(5)
+
+pdf.set_font("Arial", "B", 12)
+pdf.cell(0, 10, safe_text("Success Score Distribution"), ln=True)
+pdf.image("success_dist.png", w=170)
+pdf.ln(5)
+
+if len(model_df) >= 10:
+    pdf.cell(0, 10, safe_text("Feature Importance"), ln=True)
+    pdf.image("feature_importance.png", w=170)
+
+pdf.output("movie_analysis_report.pdf")
+
 
     if st.button("Predict Success"):
         score = g_model.predict(inp)[0]
