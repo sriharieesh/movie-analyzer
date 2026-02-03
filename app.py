@@ -177,7 +177,7 @@ with tab3:
 # TAB 4 — REPORT
 # -------------------------------------------------
 with tab4:
-    st.subheader("📄 Auto-Generated Report")
+    st.subheader("📄 Auto-Generated Report with Visualizations")
 
     if df_score is None:
         st.warning("Report unavailable.")
@@ -185,27 +185,48 @@ with tab4:
         insights = [
             f"Average success score: {df_score['success_score'].mean():.3f}",
             f"Maximum success score: {df_score['success_score'].max():.3f}",
-            "Ratings contribute most strongly to movie success."
+            f"Model R² score: {r2:.3f}",
+            f"Model RMSE: {rmse:.3f}",
+            "Ratings have the strongest influence on movie success."
         ]
 
         for i in insights:
             st.write("•", i)
 
-        if st.button("📥 Generate PDF"):
+        if st.button("📥 Generate PDF Report"):
+            # ---- Save charts ----
+            save_plot(fig_success, "success_dist.png")
+            save_plot(fig_importance, "feature_importance.png")
+
+            # ---- Create PDF ----
             pdf = FPDF()
             pdf.add_page()
-            pdf.set_font("Arial", size=12)
-
-            pdf.cell(0, 10, "Movie Intelligence Lab Report", ln=True)
+            pdf.set_font("Arial", "B", 14)
+            pdf.cell(0, 10, "Movie Intelligence Lab – Analysis Report", ln=True)
             pdf.ln(5)
 
+            pdf.set_font("Arial", size=11)
             for i in insights:
-                pdf.multi_cell(0, 8, i)
+                pdf.multi_cell(0, 8, f"• {i}")
+            pdf.ln(5)
 
-            pdf.output("movie_report.pdf")
+            pdf.set_font("Arial", "B", 12)
+            pdf.cell(0, 10, "Success Score Distribution", ln=True)
+            pdf.image("success_dist.png", w=170)
+            pdf.ln(5)
+
+            pdf.cell(0, 10, "Feature Importance", ln=True)
+            pdf.image("feature_importance.png", w=170)
+
+            pdf.output("movie_analysis_report.pdf")
 
             st.download_button(
-                "⬇️ Download PDF",
-                data=open("movie_report.pdf", "rb"),
-                file_name="movie_report.pdf"
+                "⬇️ Download PDF Report",
+                data=open("movie_analysis_report.pdf", "rb"),
+                file_name="movie_analysis_report.pdf"
             )
+
+            # cleanup
+            os.remove("success_dist.png")
+            os.remove("feature_importance.png")
+
