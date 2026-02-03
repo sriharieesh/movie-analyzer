@@ -271,7 +271,7 @@ with tab4:
             os.remove("success_dist.png")
             if fig_importance:
                 os.remove("feature_importance.png")
-)
+
 
             # cleanup
             os.remove("success_dist.png")
