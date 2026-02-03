@@ -3,19 +3,13 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import matplotlib.pyplot as plt
+import shap
 
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score, mean_squared_error
+from sklearn.preprocessing import LabelEncoder
 from fpdf import FPDF
-
-# -------------------------------------------------
-# HELPER FUNCTION (UNICODE SAFE FOR PDF)
-# -------------------------------------------------
-def safe_text(text):
-    if isinstance(text, str):
-        return text.encode("latin-1", "replace").decode("latin-1")
-    return str(text)
 
 # -------------------------------------------------
 # CONFIG
@@ -24,10 +18,26 @@ st.set_page_config(page_title="🎬 Movie Intelligence Lab", layout="wide")
 st.title("🎬 Movie Intelligence Lab")
 
 # -------------------------------------------------
+# HELPERS
+# -------------------------------------------------
+def safe_text(text):
+    return text.encode("latin-1", "replace").decode("latin-1")
+
+norm_params = {}
+
+def fit_norm(col):
+    mn, mx = col.min(), col.max()
+    norm_params[col.name] = (mn, mx)
+    return (col - mn) / (mx - mn)
+
+def apply_norm(val, name):
+    mn, mx = norm_params[name]
+    return (val - mn) / (mx - mn)
+
+# -------------------------------------------------
 # FILE UPLOAD
 # -------------------------------------------------
 file = st.file_uploader("📂 Upload Movie CSV", type="csv")
-
 if not file:
     st.info("Upload a CSV file to continue.")
     st.stop()
@@ -35,205 +45,213 @@ if not file:
 df = pd.read_csv(file)
 
 # -------------------------------------------------
-# SAFE NORMALIZATION + BASE SCORE
+# BASIC CLEANING
 # -------------------------------------------------
-required_cols = {"rating", "votes", "revenue"}
-df_score = None
+required_cols = {"rating", "votes", "revenue", "genre"}
+if not required_cols.issubset(df.columns):
+    st.error("CSV must contain rating, votes, revenue, genre columns.")
+    st.stop()
 
-if required_cols.issubset(df.columns):
-    df_score = df.copy()
+df = df.dropna(subset=required_cols)
 
-    for col in ["rating", "votes", "revenue"]:
-        df_score[col] = pd.to_numeric(df_score[col], errors="coerce")
+df["genre"] = df["genre"].astype(str).str.split("|")
+df = df.explode("genre")
+df["genre"] = df["genre"].str.strip()
 
-        min_val = df_score[col].min()
-        max_val = df_score[col].max()
+# -------------------------------------------------
+# NORMALIZATION + SUCCESS SCORE
+# -------------------------------------------------
+df["rating"] = pd.to_numeric(df["rating"])
+df["votes"] = pd.to_numeric(df["votes"])
+df["revenue"] = pd.to_numeric(df["revenue"])
 
-        if pd.isna(min_val) or pd.isna(max_val) or min_val == max_val:
-            df_score[col] = 0.0
-        else:
-            df_score[col] = (df_score[col] - min_val) / (max_val - min_val)
+df["rating_n"] = fit_norm(df["rating"])
+df["votes_n"] = fit_norm(df["votes"])
+df["revenue_n"] = fit_norm(df["revenue"])
 
-    df_score["success_score"] = (
-        0.5 * df_score["rating"]
-        + 0.3 * df_score["revenue"]
-        + 0.2 * df_score["votes"]
-    )
+df["success_score"] = (
+    0.5 * df["rating_n"] +
+    0.3 * df["revenue_n"] +
+    0.2 * df["votes_n"]
+)
 
 # -------------------------------------------------
 # TABS
 # -------------------------------------------------
-tab1, tab2, tab3, tab4 = st.tabs([
-    "📊 Exploration",
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "📊 Dashboard",
     "🎯 Success Scoring",
     "🤖 Predictive Model",
-    "📄 Report"
+    "💰 Revenue Classification",
+    "🎭 Genre-wise Prediction"
 ])
 
 # -------------------------------------------------
-# TAB 1 — EXPLORATION
+# TAB 1 — ANALYST DASHBOARD
 # -------------------------------------------------
 with tab1:
-    st.subheader("Exploratory Analysis")
-    st.dataframe(df.head())
+    st.subheader("📊 Analyst Overview")
 
-    if "year" in df.columns:
-        year_df = df["year"].dropna().astype(int)
-        fig = px.line(
-            year_df.value_counts().sort_index().reset_index(name="count"),
-            x="index", y="count",
-            title="Movies Released Per Year"
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total Movies", len(df))
+    c2.metric("Avg Rating", round(df["rating"].mean(), 2))
+    c3.metric("Median Revenue", f"${df['revenue'].median():,.0f}")
+    c4.metric("Avg Success", round(df["success_score"].mean(), 3))
+
+    genre_perf = (
+        df.groupby("genre")
+        .agg(
+            avg_success=("success_score", "mean"),
+            avg_rating=("rating", "mean"),
+            avg_revenue=("revenue", "mean"),
+            count=("genre", "count")
         )
-        st.plotly_chart(fig, use_container_width=True)
+        .query("count >= 10")
+        .reset_index()
+    )
 
-    if {"genre", "rating"}.issubset(df.columns):
-        fig = px.box(df, x="genre", y="rating", title="Rating Distribution by Genre")
-        st.plotly_chart(fig, use_container_width=True)
+    fig = px.scatter(
+        genre_perf,
+        x="avg_rating",
+        y="avg_success",
+        size="count",
+        color="avg_revenue",
+        hover_name="genre",
+        title="Genre Performance Landscape"
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
 # -------------------------------------------------
 # TAB 2 — SUCCESS SCORING
 # -------------------------------------------------
 with tab2:
-    st.subheader("🎯 Movie Success Scoring")
+    st.subheader("🎯 Success Score Distribution")
 
-    if df_score is None:
-        st.warning("CSV must contain rating, votes, and revenue columns.")
-    else:
-        fig = px.histogram(
-            df_score,
-            x="success_score",
-            title="Success Score Distribution"
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-        st.metric(
-            "Average Success Score",
-            round(df_score["success_score"].mean(), 3)
-        )
+    fig = px.histogram(df, x="success_score", nbins=20)
+    st.plotly_chart(fig, use_container_width=True)
 
 # -------------------------------------------------
-# TAB 3 — PREDICTIVE MODEL
+# TAB 3 — PREDICTIVE MODEL + SHAP
 # -------------------------------------------------
 with tab3:
-    st.subheader("🤖 Predictive Model (With Metrics)")
+    st.subheader("🤖 Success Score Prediction")
 
-    if df_score is None:
-        st.warning("Success score unavailable.")
-    else:
-        model_df = df_score[
-            ["rating", "votes", "revenue", "success_score"]
-        ].dropna()
+    model_df = df[["rating_n", "votes_n", "revenue_n", "success_score"]]
 
-        if len(model_df) < 10:
-            st.warning("Not enough clean data to train model.")
-        else:
-            X = model_df[["rating", "votes", "revenue"]]
-            y = model_df["success_score"]
+    X = model_df[["rating_n", "votes_n", "revenue_n"]]
+    y = model_df["success_score"]
 
-            X_train, X_test, y_train, y_test = train_test_split(
-                X, y, test_size=0.25, random_state=42
-            )
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.25, random_state=42
+    )
 
-            model = RandomForestRegressor(
-                n_estimators=100,
-                random_state=42
-            )
-            model.fit(X_train, y_train)
+    model = RandomForestRegressor(
+        n_estimators=200,
+        max_depth=6,
+        random_state=42
+    )
+    model.fit(X_train, y_train)
 
-            y_pred = model.predict(X_test)
+    y_pred = model.predict(X_test)
 
-            r2 = r2_score(y_test, y_pred)
-            rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+    r2 = r2_score(y_test, y_pred)
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
 
-            col1, col2 = st.columns(2)
-            col1.metric("R² Score", f"{r2:.3f}")
-            col2.metric("RMSE", f"{rmse:.3f}")
+    c1, c2 = st.columns(2)
+    c1.metric("R² Score", f"{r2:.3f}")
+    c2.metric("RMSE", f"{rmse:.3f}")
 
-            importance = pd.DataFrame({
-                "Feature": X.columns,
-                "Importance": model.feature_importances_
-            })
+    st.subheader("🔍 Explainable AI (SHAP)")
 
-            fig = px.bar(
-                importance,
-                x="Feature", y="Importance",
-                title="Feature Importance"
-            )
-            st.plotly_chart(fig, use_container_width=True)
+    explainer = shap.TreeExplainer(model)
+    shap_values = explainer.shap_values(X_test)
+
+    fig, ax = plt.subplots()
+    shap.summary_plot(
+        shap_values,
+        X_test,
+        plot_type="bar",
+        show=False
+    )
+    st.pyplot(fig)
+    plt.close()
 
 # -------------------------------------------------
-# TAB 4 — REPORT (WITH VISUALS)
+# TAB 4 — REVENUE CLASSIFICATION
 # -------------------------------------------------
 with tab4:
-    st.subheader("📄 Auto-Generated Report with Visualizations")
+    st.subheader("💰 Revenue Classification")
 
-    if df_score is None:
-        st.warning("Report unavailable.")
-    else:
-        insights = [
-            f"Average success score: {df_score['success_score'].mean():.3f}",
-            f"Maximum success score: {df_score['success_score'].max():.3f}",
-            "Ratings contribute most strongly to movie success."
-        ]
+    q40 = df["revenue"].quantile(0.40)
+    q75 = df["revenue"].quantile(0.75)
 
-        for i in insights:
-            st.write("-", i)
+    df["revenue_class"] = np.select(
+        [
+            df["revenue"] >= q75,
+            df["revenue"] >= q40
+        ],
+        ["Hit", "Average"],
+        default="Flop"
+    )
 
-        if st.button("📥 Generate PDF Report"):
-            # --- Chart 1 ---
-            plt.figure()
-            plt.hist(df_score["success_score"], bins=10)
-            plt.title("Success Score Distribution")
-            plt.xlabel("Success Score")
-            plt.ylabel("Frequency")
-            plt.tight_layout()
-            plt.savefig("success_dist.png")
-            plt.close()
+    X_cls = df[["rating_n", "votes_n"]]
+    y_cls = df["revenue_class"]
 
-            # --- Chart 2 ---
-            model_df = df_score[
-                ["rating", "votes", "revenue", "success_score"]
-            ].dropna()
+    le = LabelEncoder()
+    y_enc = le.fit_transform(y_cls)
 
-            if len(model_df) >= 10:
-                X = model_df[["rating", "votes", "revenue"]]
-                y = model_df["success_score"]
+    clf = RandomForestClassifier(
+        n_estimators=200,
+        max_depth=6,
+        random_state=42
+    )
+    clf.fit(X_cls, y_enc)
 
-                model = RandomForestRegressor(n_estimators=100, random_state=42)
-                model.fit(X, y)
+    preds = le.inverse_transform(clf.predict(X_cls))
 
-                plt.figure()
-                plt.bar(X.columns, model.feature_importances_)
-                plt.title("Feature Importance")
-                plt.tight_layout()
-                plt.savefig("feature_importance.png")
-                plt.close()
+    fig = px.pie(
+        names=pd.Series(preds).value_counts().index,
+        values=pd.Series(preds).value_counts().values,
+        title="Revenue Outcome Distribution"
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
-            # --- Build PDF ---
-            pdf = FPDF()
-            pdf.add_page()
-            pdf.set_font("Arial", "B", 14)
-            pdf.cell(0, 10, safe_text("Movie Intelligence Lab - Analysis Report"), ln=True)
-            pdf.ln(5)
+# -------------------------------------------------
+# TAB 5 — GENRE-WISE SUCCESS PREDICTION
+# -------------------------------------------------
+with tab5:
+    st.subheader("🎭 Genre-wise Success Prediction")
 
-            pdf.set_font("Arial", size=11)
-            for i in insights:
-                pdf.multi_cell(0, 8, safe_text(f"- {i}"))
-            pdf.ln(5)
+    genre_models = {}
 
-            pdf.set_font("Arial", "B", 12)
-            pdf.cell(0, 10, safe_text("Success Score Distribution"), ln=True)
-            pdf.image("success_dist.png", w=170)
-            pdf.ln(5)
+    for g in df["genre"].unique():
+        gdf = df[df["genre"] == g]
+        if len(gdf) < 20:
+            continue
 
-            if len(model_df) >= 10:
-                pdf.cell(0, 10, safe_text("Feature Importance"), ln=True)
-                pdf.image("feature_importance.png", w=170)
+        Xg = gdf[["rating_n", "votes_n", "revenue_n"]]
+        yg = gdf["success_score"]
 
-            pdf.output("movie_analysis_report.pdf")
+        m = RandomForestRegressor(
+            n_estimators=150,
+            max_depth=6,
+            random_state=42
+        )
+        m.fit(Xg, yg)
+        genre_models[g] = m
 
-            st.download_button(
-                "⬇️ Download PDF Report",
-                data=open("movie_analysis_report.pdf", "rb"),
-                file_name="movie_analysis_report.pdf"
-            )
+    genre = st.selectbox("Select Genre", list(genre_models.keys()))
+
+    rating = st.slider("Rating", 0.0, 10.0, 7.0)
+    votes = st.number_input("Votes", 1000, 1_000_000, 50000)
+    revenue = st.number_input("Revenue ($)", 1e6, 1e9, 5e7)
+
+    if st.button("Predict Success"):
+        inp = pd.DataFrame([{
+            "rating_n": apply_norm(rating, "rating"),
+            "votes_n": apply_norm(votes, "votes"),
+            "revenue_n": apply_norm(revenue, "revenue")
+        }])
+
+        pred = genre_models[genre].predict(inp)[0]
+        st.success(f"🎬 Predicted Success Score: {pred:.3f}")
