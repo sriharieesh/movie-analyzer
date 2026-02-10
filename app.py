@@ -264,6 +264,6 @@ if len(model_df) >= 10:
 pdf.output("movie_analysis_report.pdf")
 
 
-    if st.button("Predict Success"):
-        score = g_model.predict(inp)[0]
-        st.success(f"🎬 Predicted Success Score: {score:.3f}")
+if st.button("Predict Success"):
+    score = g_model.predict(inp)[0]
+    st.success(f"🎬 Predicted Success Score: {score:.3f}")
