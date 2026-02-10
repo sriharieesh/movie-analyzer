@@ -236,7 +236,7 @@ with tab5:
         "revenue_n": (rev - data["revenue"].min()) / (data["revenue"].max() - data["revenue"].min())
     }])
     # ---------- BUILD PDF ----------
-pdf = FPDF()
+pdf = PDF()
 pdf.add_page()
 
 pdf.set_font("Arial", "B", 14)
